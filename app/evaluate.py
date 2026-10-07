@@ -12,13 +12,26 @@ OBS_CONF = 0.5
 MEETS, FAILS, CANNOT = "meets", "does_not_meet", "cannot_assess"
 
 
+_skill_cache: dict = {}
+
+
 def load_skill():
+    """Parsed skill, cached until criteria.yaml or SKILL.md changes on disk."""
     path = os.path.join(SKILL_DIR, "criteria.yaml")
-    raw = open(path, "rb").read()
+    md_path = os.path.join(SKILL_DIR, "SKILL.md")
+    stamp = tuple((st.st_mtime_ns, st.st_size) for st in (os.stat(path), os.stat(md_path)))
+    hit = _skill_cache.get((path, md_path))
+    if hit and hit[0] == stamp:
+        return hit[1]
+    with open(path, "rb") as fh:
+        raw = fh.read()
     data = yaml.safe_load(raw)
     data["_hash"] = hashlib.sha256(raw).hexdigest()[:10]
-    skill_md = open(os.path.join(SKILL_DIR, "SKILL.md"), encoding="utf-8").read()
-    return data, raw.decode("utf-8"), skill_md
+    with open(md_path, encoding="utf-8") as fh:
+        skill_md = fh.read()
+    out = (data, raw.decode("utf-8"), skill_md)
+    _skill_cache[(path, md_path)] = (stamp, out)
+    return out
 
 
 def _band_text(check):
