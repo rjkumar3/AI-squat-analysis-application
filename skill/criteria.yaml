@@ -1,0 +1,295 @@
+# Squat assessment criteria derived from the reference document
+# ("The Squat" chapter, supplied as Document_for_skill.pdf).
+#
+# Page numbers are REFERENCE pages 1-35 (combined assignment PDF pages 4-38).
+#
+# This file is the single source of truth for what the app assesses. The
+# application code only knows how to compute the metrics named below; every
+# threshold, every pass/fail band and every piece of feedback lives here.
+# Edit this file and click "Re-assess" in the app (or POST /api/jobs/{id}/reassess)
+# to see the effect without re-running pose estimation.
+#
+# Rule semantics (applied by app/evaluate.py):
+#   meets_if:       value must fall inside [min, max] (either bound optional)
+#   fails_if_any:   list of {lt: x} / {gt: x}; any match -> does_not_meet
+#   otherwise       -> cannot_assess ("borderline: inside measurement uncertainty")
+#   missing value / low landmark confidence / missing marker -> cannot_assess
+# valid_views: views in which the measurement is meaningful (default [side]);
+#   horizontal distances and angles shrink on an oblique (angled) camera.
+# A criterion with several checks: any does_not_meet -> does_not_meet;
+# all meets -> meets; anything else -> cannot_assess.
+#
+# tolerance_origin:
+#   document                  the number is stated in the document
+#   implementation_assumption the document gives a direction or an "about",
+#                             but no numeric tolerance; we chose the band and
+#                             the UI labels it as our assumption.
+
+version: 3
+source:
+  title: "The Squat (reference chapter supplied with the assignment)"
+  pages: "reference pages 1-35"
+  view_assumed: "side (profile) view, camera level, perpendicular to the lifter"
+
+conventions:
+  image_y_axis: "down (larger y = lower in the frame)"
+  forward: "the direction the toes point (from the heel marker to the toe marker)"
+  thigh_length: "distance hip keypoint -> knee keypoint, median over the rep"
+  shin_length: "distance knee keypoint -> ankle keypoint, median over the rep"
+  foot_length: "distance between the user-placed heel and toe markers"
+  torso_length: "distance shoulder keypoint -> hip keypoint, median over the rep"
+  back_angle: "angle between the hip->shoulder line and horizontal, degrees (0 = horizontal, 90 = vertical). Proxy for the document's 'plane of the torso' (ref p9, Fig 2-5)."
+  midfoot: "midpoint of the heel and toe markers. Document: 'the midfoot is exactly halfway between either end of the sole of the shoe' (ref p8)."
+  bottom_frame: "frame where the hip keypoint is lowest in the rep"
+
+criteria:
+
+  - id: DEPTH
+    valid_views: [side, oblique]   # vertical-only measurement
+    name: "Squat depth: hip crease below top of kneecap"
+    assessable: partial
+    why_partial: >
+      The document defines depth with the hip crease (apex of the shorts crease)
+      and the TOP of the patella. A pose model gives hip-joint and knee-joint
+      centres instead, so we measure a proxy and leave a borderline band where
+      the proxy cannot decide.
+    source:
+      - {page: 2, ref: "Figure 2-1", says: "Depth landmarks are the top of the patella and the hip joint as seen at the apex of the shorts crease; the hip side must drop below parallel with the ground."}
+      - {page: 15, ref: "Squat Depth - Safety and Importance", says: "Correct means deep, with the hips dropping below level with the top of the patellas; any squat that is not deep is a partial squat."}
+      - {page: 17, ref: "Figure 2-10", says: "Thigh undersurface parallel to the floor is often confused with parallel; parallel is defined by the Figure 2-1 landmarks."}
+      - {page: 33, ref: "Adding the bar", says: "Do not accept anything less than full depth."}
+    phase: bottom
+    checks:
+      - metric: depth_margin
+        unit: "thigh lengths (positive = hip keypoint below knee keypoint)"
+        meets_if: {min: 0.02}
+        fails_if_any: [{lt: -0.10}]
+        tolerance_origin: implementation_assumption
+        tolerance_note: >
+          Document rule is 'hip crease below top of patella' (no tolerance needed in
+          principle). The band from -0.10 to +0.02 thigh lengths is our allowance
+          for the gap between keypoint centres and the document's surface landmarks.
+    required_landmarks: [hip, knee]
+    feedback:
+      meets: "Your hips dropped below the top of your knees at the bottom - that is the full-depth squat the standard asks for."
+      does_not_meet: "This rep stopped above parallel. Go all the way down until the crease of your hips is below the top of your kneecaps. The document's usual causes: not looking down, not shoving the knees out, stance too narrow or too wide, or not committing to depth (ref p35)."
+      cannot_assess: "We could not decide depth from this video. Film from the side at hip height so both the hip and knee are clearly visible at the bottom."
+
+  - id: BAR_OVER_MIDFOOT
+    name: "Bar stays over the middle of the foot"
+    assessable: partial
+    why_partial: "Requires the user to mark the plate centre and the heel/toe. Perspective (plate nearer the camera than the foot) adds small error."
+    source:
+      - {page: 8, ref: "Loaded Human Movement / Figure 2-5", says: "The lifter-barbell system is in balance when the bar is directly over the midfoot; at light weights the bar may sit slightly forward and comes over the midfoot as weight increases."}
+      - {page: 11, ref: "Loaded Human Movement", says: "Good technique is the ability to keep the bar vertically aligned with the balance point."}
+      - {page: 32, ref: "Adding the bar / Figure 2-22", says: "Weight should stay balanced over the middle of the feet; flopping forward lets the bar drop forward of the midfoot."}
+    phase: whole_rep
+    checks:
+      - metric: bar_midfoot_max_offset
+        unit: "foot lengths (largest horizontal distance bar->midfoot during the rep)"
+        meets_if: {max: 0.20}
+        fails_if_any: [{gt: 0.35}]
+        tolerance_origin: implementation_assumption
+        tolerance_note: "Document says 'directly over'; it allows some forward offset at light weights but gives no number. 0.20 / 0.35 foot lengths are our bands."
+    required_landmarks: []
+    requires: [bar_marker, foot_markers]
+    feedback:
+      meets: "The bar stayed over your midfoot through the rep - the balanced position the standard describes."
+      does_not_meet: "The bar drifted away from your midfoot. Keep it stacked over the middle of the foot all the way down and up; drifting forward usually means the back angle changed or the chest dropped (ref p32)."
+      cannot_assess: "Mark the end of the bar (plate centre) and your heel and toe before analysis so we can check bar balance."
+
+  - id: BAR_PATH_VERTICAL
+    name: "Bar path is a vertical line"
+    assessable: partial
+    why_partial: "Requires the bar marker; tracker accuracy is a few pixels."
+    source:
+      - {page: 6, ref: "Loaded Human Movement", says: "Gravity acts straight down, so a straight vertical line is the most efficient bar path."}
+      - {page: 7, ref: "Figure 2-3", says: "Horizontal bar movement is not work against gravity."}
+    phase: whole_rep
+    checks:
+      - metric: bar_horizontal_drift
+        unit: "foot lengths (max minus min horizontal bar position in the rep)"
+        meets_if: {max: 0.20}
+        fails_if_any: [{gt: 0.35}]
+        tolerance_origin: implementation_assumption
+        tolerance_note: "Document says 'straight vertical line'; the allowed drift is our assumption."
+    required_landmarks: []
+    requires: [bar_marker, foot_markers]
+    feedback:
+      meets: "Your bar moved in a near-vertical line - efficient work against gravity."
+      does_not_meet: "Your bar path wandered forward or back. Aim for a straight vertical line over the midfoot; horizontal movement is wasted effort (ref p6-7)."
+      cannot_assess: "Mark the plate centre before analysis to measure the bar path."
+
+  - id: BACK_ANGLE_BOTTOM
+    name: "Back angle about 45 degrees at the bottom"
+    assessable: partial
+    why_partial: "Uses the shoulder->hip line as a proxy for the plane of the torso."
+    source:
+      - {page: 22, ref: "Figure 2-13 and text", says: "At the bottom the back is inclined at about 45 degrees, not at all vertical, which places the bar over the midfoot."}
+      - {page: 32, ref: "Adding the bar", says: "Balance problems usually indicate a back angle that is too vertical; sit back and lean forward enough."}
+      - {page: 35, ref: "Important Things You're Going to Do Wrong: Back angle", says: "The back is usually too vertical (wrong mental picture or bar too high) or too horizontal (chest not kept up)."}
+    phase: bottom
+    checks:
+      - metric: back_angle_bottom
+        unit: "degrees above horizontal"
+        meets_if: {min: 35, max: 55}
+        fails_if_any: [{lt: 28}, {gt: 62}]
+        tolerance_origin: implementation_assumption
+        tolerance_note: "The document says 'about 45 degrees' (document number). The +/-10 degree band and the 28/62 failure limits are our assumption."
+    required_landmarks: [shoulder, hip]
+    feedback:
+      meets: "Your back angle at the bottom was close to the ~45 degrees the standard describes."
+      does_not_meet: "Your back angle at the bottom was outside the ~45 degree position. If too upright: sit back, lean forward and check the bar is low on your back. If too horizontal: keep your chest up (ref p22, p35)."
+      cannot_assess: "Shoulder or hip was not visible clearly enough at the bottom to measure your back angle."
+
+  - id: HIP_DRIVE
+    name: "Hip drive: hips go up, not forward; chest does not lead"
+    assessable: partial
+    why_partial: "Inferred from how the back angle and hip position change in the first part of the ascent; muscle recruitment itself cannot be seen."
+    source:
+      - {page: 22, ref: "Generating hip drive", says: "Come up by driving your butt straight up in the air - up, not forward - keeping weight over the whole foot."}
+      - {page: 32, ref: "Figure 2-22", says: "The back angle during the drive up is critical; flopping forward allows the bar to drop forward of the midfoot."}
+      - {page: 35, ref: "Important Things You're Going to Do Wrong: Hip drive", says: "Lifting the chest instead of driving the hips up makes the back angle too vertical and kills power out of the bottom."}
+    phase: early_ascent
+    checks:
+      - metric: early_ascent_back_angle_change
+        unit: "degrees (positive = torso became more upright, i.e. chest led)"
+        meets_if: {min: -10, max: 10}
+        fails_if_any: [{lt: -15}, {gt: 15}]
+        tolerance_origin: implementation_assumption
+        tolerance_note: "Document: back angle held during the drive. 'Held' within 10 degrees, failure beyond 15, are our assumptions. Early ascent = first 30% of hip rise."
+      - metric: early_ascent_hip_forward
+        unit: "thigh lengths the hip moved toward the toes during early ascent"
+        meets_if: {max: 0.10}
+        fails_if_any: [{gt: 0.20}]
+        tolerance_origin: implementation_assumption
+        tolerance_note: "Document: 'up, not forward'. The allowed forward hip travel is our assumption."
+    required_landmarks: [shoulder, hip]
+    feedback:
+      meets: "You drove your hips up out of the bottom with your back angle held - that is hip drive."
+      does_not_meet: "Out of the bottom your hips moved forward or your chest came up first. Think of a chain pulling your hips straight up; keep the back angle fixed and look at the floor 4-5 feet ahead (ref p22-23, p35)."
+      cannot_assess: "We could not follow the shoulder and hip clearly out of the bottom of this rep."
+
+  - id: KNEES_SLIGHTLY_FORWARD
+    name: "Knees just a little in front of the toes at the bottom"
+    assessable: partial
+    why_partial: "Needs the toe marker; the knee keypoint is the joint centre, not the front of the knee, so only clear cases get a verdict. 'Knees out' (sideways) cannot be seen from the side."
+    source:
+      - {page: 22, ref: "Figure 2-13 and text", says: "At the bottom the knees are just a little in front of the toes, feet flat, hips back."}
+      - {page: 17, ref: "Partial squats", says: "Partial squats push the knees far forward of the midfoot; the low-bar squat keeps the knees back."}
+    phase: bottom
+    checks:
+      - metric: knee_forward_of_toe
+        unit: "foot lengths (knee joint centre ahead of the toe tip; negative = behind)"
+        meets_if: {min: -0.40, max: 0.20}
+        fails_if_any: [{gt: 0.50}]
+        tolerance_origin: implementation_assumption
+        tolerance_note: "Document: 'just a little in front of your toes'. Because the knee keypoint is ~0.3 foot lengths behind the front of the kneecap, the band is wide and only an extreme forward knee fails."
+    required_landmarks: [knee]
+    requires: [foot_markers]
+    feedback:
+      meets: "Your knees were in the 'just a little past the toes' zone at the bottom."
+      does_not_meet: "Your knees travelled well in front of your toes. Sit your hips back further so the knees stay only slightly ahead of the toes (ref p22)."
+      cannot_assess: "Mark your toe before analysis, and make sure the knee is visible at the bottom."
+
+  - id: FEET_FLAT
+    valid_views: [side, oblique]   # vertical-only measurement
+    name: "Feet stay flat (heels down)"
+    assessable: partial
+    why_partial: "The pose model has no heel point; we use rise of the ankle keypoint as a proxy for the heel lifting."
+    source:
+      - {page: 22, ref: "Bottom position details", says: "Your feet are flat on the floor."}
+      - {page: 24, ref: "Eye gaze experiment", says: "Assume the bottom position with knees out, toes out and heels down."}
+    phase: whole_rep
+    checks:
+      - metric: ankle_rise
+        unit: "shin lengths the ankle rose above its standing height"
+        meets_if: {max: 0.03}
+        fails_if_any: [{gt: 0.08}]
+        tolerance_origin: implementation_assumption
+        tolerance_note: "Document: feet flat. Keypoint jitter allowance (0.03) and failure level (0.08) are our assumptions."
+    required_landmarks: [ankle]
+    feedback:
+      meets: "Your feet appeared to stay flat through the rep."
+      does_not_meet: "Your heel appears to lift during the rep. Keep the whole foot flat on the floor and the weight over the midfoot (ref p22)."
+      cannot_assess: "The ankle was not tracked reliably enough to judge whether your heels stayed down."
+
+  - id: NO_PAUSE_AT_BOTTOM
+    valid_views: [side, oblique]   # vertical-only measurement
+    name: "No stop at the bottom"
+    assessable: full
+    source:
+      - {page: 32, ref: "Adding the bar", says: "Don't stop at the bottom - go down and immediately come back up."}
+      - {page: 16, ref: "Squat depth", says: "Tight posterior muscles at the bottom give a slight rebound (stretch reflex)."}
+    phase: bottom
+    checks:
+      - metric: bottom_dwell_s
+        unit: "seconds the hip stayed within 3% of a thigh length of its lowest point"
+        meets_if: {max: 0.5}
+        fails_if_any: [{gt: 1.0}]
+        tolerance_origin: implementation_assumption
+        tolerance_note: "Document: 'immediately'. 0.5 s / 1.0 s are our assumptions."
+    required_landmarks: [hip]
+    feedback:
+      meets: "You turned around at the bottom without stopping, using the stretch reflex."
+      does_not_meet: "You paused at the bottom. Go down and immediately come back up to use the rebound of the stretch reflex (ref p32, p16)."
+      cannot_assess: "The hip was not tracked well enough at the bottom to time the turnaround."
+
+  - id: EYE_GAZE_DOWN
+    name: "Eyes down, chin down"
+    assessable: partial
+    why_partial: "Eye direction is not measurable; we use head pitch (ear->nose line) and only call clear cases."
+    source:
+      - {page: 23, ref: "Eye gaze", says: "Looking up interferes with the bottom position, hip drive and chest position, and overextends the neck."}
+      - {page: 26, ref: "Eye gaze correction", says: "Fix the eyes on the floor 4-5 feet in front of you."}
+      - {page: 35, ref: "Important Things You're Going to Do Wrong: Eye gaze", says: "Failing to look down kills hip drive."}
+    phase: bottom
+    checks:
+      - metric: head_pitch_down_bottom
+        unit: "degrees the ear->nose line points below horizontal (negative = looking up)"
+        meets_if: {min: 10}
+        fails_if_any: [{lt: -10}]
+        tolerance_origin: implementation_assumption
+        tolerance_note: "Document gives a target (floor 4-5 ft ahead), not a head angle. The head-pitch bands are our assumption and only catch clear looking-up."
+    required_landmarks: [nose, ear]
+    feedback:
+      meets: "Your head was tilted down at the bottom, consistent with looking at the floor ahead."
+      does_not_meet: "You appear to be looking up. Pick a spot on the floor 4-5 feet in front of you and keep your chin down (ref p26)."
+      cannot_assess: "The face was not visible clearly enough to estimate head position."
+
+  - id: LOW_BAR_POSITION
+    name: "Bar low on the back (just below the spine of the scapula)"
+    assessable: partial
+    why_partial: "The scapular spine is not visible on video. We can only flag a bar that sits clearly above the shoulder joint (high-bar); we never award a pass."
+    source:
+      - {page: 13, ref: "Low-bar position", says: "The bar should sit in the lowest secure position, just below the spine of the scapula."}
+      - {page: 29, ref: "Adding the bar", says: "Most people starting out place the bar too high, just above the scapular spine instead of just below it."}
+      - {page: 35, ref: "Important Things You're Going to Do Wrong: Bar placement", says: "Placing the bar too high affects back angle and hip drive."}
+    phase: bottom
+    checks:
+      - metric: bar_above_shoulder
+        unit: "torso lengths the bar centre sits above the shoulder keypoint, along the torso"
+        meets_if: null   # null = this check can never award "meets"
+        fails_if_any: [{gt: 0.15}]
+        tolerance_origin: implementation_assumption
+        tolerance_note: "Never 'meets' by design (anatomy not visible). Fails only if the bar is clearly high on the traps."
+    required_landmarks: [shoulder, hip]
+    requires: [bar_marker]
+    feedback:
+      meets: "n/a"
+      does_not_meet: "The bar looks high on your traps. Place it just below the bony ridge at the top of the shoulder blades and trap it by lifting elbows and chest (ref p29)."
+      cannot_assess: "Bar placement on the shoulder blade cannot be confirmed from video; check it by feel - the bar should sit just below the bony ridge (spine of the scapula)."
+
+# Standards in the document that a side-view video cannot assess.
+# Shown to the user in every report so the gaps are explicit.
+not_assessable_from_side_view:
+  - {topic: "Stance width (heels about shoulder width)", page: 14, why: "Needs a front or overhead view."}
+  - {topic: "Toes pointed out about 30 degrees", page: 19, why: "Foot rotation is not visible from the side."}
+  - {topic: "Knees shoved out, thighs parallel to the feet", page: 22, why: "Sideways knee travel is perpendicular to the camera."}
+  - {topic: "Back flat, held in lumbar and thoracic extension", page: 32, why: "Spine curvature is not captured by joint keypoints."}
+  - {topic: "Grip width, thumbs on top, straight wrists", page: 28, why: "Hands are small and usually occluded by the plates."}
+  - {topic: "Elbows up, chest up to trap the bar", page: 30, why: "Not reliably visible from the side."}
+  - {topic: "Rack height at mid-sternum", page: 26, why: "Usually outside the recorded clip."}
+  - {topic: "Unracking with both feet under the bar; one step back", page: 30, why: "Usually outside the recorded clip."}
+  - {topic: "Big breath held during the rep", page: 32, why: "Breathing is not visible."}
+  - {topic: "Sets of five, empty-bar warm-up, weight increments", page: 33, why: "Programming, not movement."}

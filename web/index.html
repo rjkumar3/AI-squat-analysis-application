@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Squat Standard Coach</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="./">Squat Standard Coach</a>
+  <nav>
+    <button class="link" id="open-skill">The standard we check against</button>
+  </nav>
+</header>
+
+<main>
+  <!-- STEP 1: choose + mark -->
+  <section id="view-upload" class="view">
+    <div class="intro">
+      <h1>Check your squat against the book, rep by rep</h1>
+      <p>Upload a side-view video of a barbell squat set. We track your hips, knees, ankles and the bar,
+        then check every rep against a written coaching standard and show you the frame behind each verdict.
+        When the video can't support a verdict, we say so instead of guessing.</p>
+    </div>
+
+    <div class="upload-grid">
+      <div class="stage-card">
+        <div id="drop" class="drop" tabindex="0" role="button" aria-label="Choose a squat video">
+          <strong>Drop a squat video here</strong>
+          <span>or click to choose a file</span>
+          <input id="file" type="file" accept="video/*,.mov,.mp4,.webm,.mkv,.avi" hidden>
+        </div>
+
+        <div id="marker-step" hidden>
+          <div class="player marking">
+            <video id="prev" playsinline muted preload="auto"></video>
+            <canvas id="prev-canvas"></canvas>
+          </div>
+          <input id="prev-scrub" type="range" min="0" max="1000" value="0" aria-label="Choose frame to mark">
+          <div class="mark-help">
+            <p><b>Mark three points</b> on a frame where the plate and your feet are clear. They let us track the bar and find your midfoot. You can skip this; bar and foot checks will then show "cannot assess".</p>
+            <div class="tools" role="radiogroup" aria-label="Marker">
+              <button class="tool" data-tool="bar" role="radio"><i class="sw bar"></i>Centre of the plate</button>
+              <button class="tool" data-tool="heel" role="radio"><i class="sw foot"></i>Back of the heel</button>
+              <button class="tool" data-tool="toe" role="radio"><i class="sw foot"></i>Tip of the shoe</button>
+            </div>
+          </div>
+          <div class="actions">
+            <button id="analyze" class="primary">Analyse video</button>
+            <button id="reset" class="ghost">Choose a different video</button>
+          </div>
+        </div>
+      </div>
+
+      <aside class="filming">
+        <h2>How to film it</h2>
+        <ul>
+          <li>Camera <b>to the side</b>, square to you, at hip height and level.</li>
+          <li>Whole body, feet and plates in frame for the entire set.</li>
+          <li>One lifter in view. Good light.</li>
+          <li>Any number of reps; trim to one set.</li>
+        </ul>
+        <h2>What we accept</h2>
+        <ul id="limits">
+          <li>MP4, MOV, WebM, MKV or AVI</li>
+        </ul>
+        <p class="fine">Videos are processed on our server and kept only so you can reopen this report.</p>
+      </aside>
+    </div>
+  </section>
+
+  <!-- STEP 2: progress -->
+  <section id="view-progress" class="view" hidden>
+    <div class="progress-card">
+      <h1 id="progress-title">Uploading your video</h1>
+      <div class="bar-outer"><div id="upload-bar" class="bar-inner"></div></div>
+      <p id="upload-text" class="fine">0%</p>
+      <ol id="stages" class="stages"></ol>
+      <div id="fail" class="fail" hidden>
+        <h2>We couldn't analyse this video</h2>
+        <p id="fail-msg"></p>
+        <button class="primary" id="fail-retry">Try another video</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- STEP 3: results -->
+  <section id="view-results" class="view" hidden>
+    <div class="results">
+      <div class="left">
+        <div class="player" id="player">
+          <video id="vid" playsinline controls preload="auto"></video>
+          <canvas id="ov"></canvas>
+        </div>
+        <div class="layer-toggles" aria-label="Overlay layers">
+          <label><input type="checkbox" data-layer="body" checked> Body landmarks</label>
+          <label><input type="checkbox" data-layer="bar" checked> Bar path</label>
+          <label><input type="checkbox" data-layer="mid" checked> Midfoot line</label>
+          <label><input type="checkbox" data-layer="angles" checked> Angles</label>
+        </div>
+        <div id="rep-strip" class="rep-strip"></div>
+        <details class="legend">
+          <summary>Reading the overlay</summary>
+          <ul>
+            <li><i class="dot solid"></i> Landmark seen clearly by the model</li>
+            <li><i class="dot hollow"></i> Landmark estimated (low confidence or filled in between frames)</li>
+            <li><i class="sw bar"></i> Tracked centre of the plate; gaps mean tracking was lost, not that the bar stopped</li>
+            <li><i class="sw foot"></i> Midfoot: halfway between your heel and toe marks</li>
+            <li>Back angle is the shoulder-to-hip line against horizontal. Knee angle is hip-knee-ankle.</li>
+          </ul>
+        </details>
+        <a id="download" class="ghost-link" href="#" download>Download annotated video</a>
+      </div>
+
+      <div class="right">
+        <div id="issues"></div>
+        <h1 id="headline"></h1>
+        <p id="summary" class="summary"></p>
+        <p id="agent-mode" class="fine"></p>
+
+        <h2 class="sec">Every rep, every check</h2>
+        <p class="fine">Click a square to jump to the evidence.</p>
+        <div id="board" class="board"></div>
+        <div class="board-key">
+          <span><i class="cell meets"></i>Meets the standard</span>
+          <span><i class="cell does_not_meet"></i>Does not meet</span>
+          <span><i class="cell cannot_assess"></i>Cannot assess</span>
+        </div>
+
+        <h2 class="sec">Findings</h2>
+        <div class="filter" id="filter"></div>
+        <div id="findings"></div>
+
+        <h2 class="sec">What this video can't tell you</h2>
+        <p class="fine">The standard also covers these points, but a side view can't show them. Check them in a mirror or with a coach.</p>
+        <ul id="not-assessable" class="na"></ul>
+
+        <div class="reassess">
+          <div>
+            <b>Changed the standard?</b>
+            <p class="fine">Re-check applies the current skill file to the measurements already taken, without re-processing the video.</p>
+          </div>
+          <button id="reassess" class="ghost">Re-check with current standard</button>
+        </div>
+        <button id="new-video" class="primary wide">Analyse another video</button>
+      </div>
+    </div>
+  </section>
+</main>
+
+<dialog id="skill-dlg">
+  <div class="dlg-head">
+    <h2>The standard we check against</h2>
+    <button class="ghost" id="close-skill" aria-label="Close">Close</button>
+  </div>
+  <p class="fine">Extracted from the reference chapter "The Squat" into <code>skill/criteria.yaml</code>. Page numbers refer to the reference document (pages 1-35). Numbers marked "app tolerance" are our own choice where the book gives a direction but no number.</p>
+  <div id="skill-body"></div>
+</dialog>
+
+<script src="app.js"></script>
+</body>
+</html>
